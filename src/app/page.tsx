@@ -324,11 +324,31 @@ export default function Home() {
 
       // Horizontal scroll for catalog section
       if (catalogSectionRef.current && horizontalTrackRef.current) {
+        const section = catalogSectionRef.current;
         const track = horizontalTrackRef.current;
         const numCards = catalogCategories.length;
         const getScrollDistance = () => track.scrollWidth - window.innerWidth;
         const panelTexts = Array.from(
           track.querySelectorAll<HTMLElement>(".h-panel-text"),
+        );
+        const backgrounds = Array.from(
+          section.querySelectorAll<HTMLElement>(".catalog-bg"),
+        );
+
+        // Entrance color transition
+        gsap.fromTo(
+          section,
+          { backgroundColor: "#0c0c0c" },
+          {
+            backgroundColor: "#000000",
+            ease: "none",
+            scrollTrigger: {
+              trigger: section,
+              start: "top bottom",
+              end: "top 20%",
+              scrub: true,
+            },
+          },
         );
 
         // Set initial state — all except first are invisible
@@ -336,28 +356,42 @@ export default function Home() {
           gsap.set(el, { opacity: i === 0 ? 1 : 0, y: i === 0 ? 0 : 30 });
         });
 
-        gsap.to(track, {
-          x: () => -getScrollDistance(),
-          ease: "none",
+        // Create a timeline to allow pauses before and after the horizontal scroll
+        const tl = gsap.timeline({
           scrollTrigger: {
-            trigger: catalogSectionRef.current,
+            trigger: section,
             pin: true,
             scrub: 1,
-            end: () => `+=${getScrollDistance()}`,
+            // Increase the total scroll distance by 1.5 viewport heights to allow for pauses
+            end: () => `+=${getScrollDistance() + window.innerHeight * 1.5}`,
             invalidateOnRefresh: true,
-            onUpdate: (self) => {
-              // progress 0→1 maps to panels 0→(N-1)
-              const rawProgress = self.progress * (numCards - 1);
+          },
+        });
+
+        tl.to({}, { duration: 0.15 }) // Pause when entering the section
+          .to(track, {
+            x: () => -getScrollDistance(),
+            ease: "none",
+            duration: 1,
+            onUpdate: function () {
+              // Use the progress of THIS specific tween, not the entire scrollTrigger timeline
+              const rawProgress = this.progress() * (numCards - 1);
+
+              backgrounds.forEach((bg, i) => {
+                const dist = Math.abs(rawProgress - i);
+                const opacity = Math.max(0, 1 - dist);
+                gsap.set(bg, { opacity });
+              });
+
               panelTexts.forEach((el, i) => {
-                // distance of this panel from current scroll position (in panel units)
                 const dist = Math.abs(rawProgress - i);
                 const opacity = Math.max(0, 1 - dist * 2);
                 const y = (1 - opacity) * 20;
                 gsap.set(el, { opacity, y });
               });
             },
-          },
-        });
+          })
+          .to({}, { duration: 0.15 }); // Pause when finishing the scroll before unpinning
       }
 
       // Animate team members
@@ -376,21 +410,6 @@ export default function Home() {
           },
         );
       });
-
-      // Animate footer
-      if (footerRef.current) {
-        gsap.fromTo(
-          footerRef.current,
-          { opacity: 0, y: 40 },
-          {
-            opacity: 1,
-            y: 0,
-            duration: 1.2,
-            ease: "power2.out",
-            scrollTrigger: { trigger: footerRef.current, start: "top 90%" },
-          },
-        );
-      }
     }, containerRef);
 
     return () => ctx.revert();
@@ -431,17 +450,6 @@ export default function Home() {
             <span className="text-3xl font-serif lowercase tracking-normal">
               F/S<span className="align-top text-sm">®</span>
             </span>
-          </div>
-
-          <div className="hidden md:flex gap-8">
-            <nav className="flex gap-4">
-              <a href="#" className="hover:opacity-70 transition-opacity">
-                Tg
-              </a>
-              <a href="#" className="hover:opacity-70 transition-opacity">
-                Wa
-              </a>
-            </nav>
           </div>
 
           <nav className="flex flex-col text-right gap-1">
@@ -679,6 +687,26 @@ export default function Home() {
         ref={catalogSectionRef}
         className="relative w-full h-screen overflow-hidden bg-background z-20"
       >
+        {/* Background cross-fade layer */}
+        <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+          {catalogCategories.map((cat, i) => (
+            <div
+              key={`bg-${cat.id}`}
+              className="catalog-bg absolute inset-0 transition-opacity duration-300 ease-out"
+              style={{ opacity: i === 0 ? 1 : 0 }}
+            >
+              <Image
+                src={cat.img}
+                alt=""
+                fill
+                sizes="100vw"
+                className="object-cover scale-125"
+              />
+              <div className="absolute inset-0 bg-black/40" />
+            </div>
+          ))}
+        </div>
+
         {/* Section label — stays fixed in top-left while panels scroll */}
         <div className="absolute top-8 left-6 md:left-12 z-30 flex items-center gap-4">
           <p className="font-mono text-xs tracking-widest uppercase opacity-40">
@@ -698,24 +726,31 @@ export default function Home() {
           <span className="w-12 h-[0.5px] bg-white/40" />
         </div>
 
-        {/* Horizontal track — width = numCards × 100vw */}
+        {/* Horizontal track */}
         <div
           ref={horizontalTrackRef}
-          className="flex h-full will-change-transform"
-          style={{ width: `${catalogCategories.length * 100}vw` }}
+          className="flex h-full items-center will-change-transform z-10 relative pt-16 md:pt-0"
+          style={{ width: `max-content` }}
         >
+          {/* Starting padding to center the first card */}
+          <div className="w-[10vw] md:w-[30vw] flex-shrink-0" />
+
           {catalogCategories.map((cat, i) => (
             <a
               key={cat.id}
               href={cat.href}
-              className="catalog-card relative flex-shrink-0 w-screen h-full overflow-hidden group"
+              className={`catalog-card relative flex-shrink-0 w-[80vw] md:w-[40vw] h-[60vh] md:h-[70vh] ${
+                i !== catalogCategories.length - 1
+                  ? "mr-[10vw] md:mr-[20vw]"
+                  : ""
+              } overflow-hidden group shadow-[0_0_50px_rgba(0,0,0,0.5)]`}
             >
               {/* Full-bleed background image */}
               <Image
                 src={cat.img}
                 alt={cat.label}
                 fill
-                sizes="100vw"
+                sizes="(max-width: 768px) 100vw, 50vw"
                 className="object-cover scale-105 group-hover:scale-110 transition-transform duration-[2000ms] ease-out"
                 priority={i === 0}
               />
@@ -724,8 +759,8 @@ export default function Home() {
               <div className="absolute inset-0 bg-[url('/noise.gif')] opacity-10 mix-blend-overlay pointer-events-none z-10" />
 
               {/* Dark vignette */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent z-10" />
-              <div className="absolute inset-0 bg-gradient-to-r from-black/40 to-transparent z-10" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent z-10" />
+              <div className="absolute inset-0 bg-gradient-to-r from-black/50 to-transparent z-10" />
 
               {/* Panel number */}
               <span className="absolute top-8 right-8 font-mono text-xs tracking-widest opacity-30 z-20">
@@ -733,11 +768,11 @@ export default function Home() {
               </span>
 
               {/* Text content */}
-              <div className="h-panel-text absolute bottom-0 left-0 p-8 md:p-16 z-20 max-w-xl">
-                <p className="font-mono text-xs tracking-widest uppercase opacity-50 mb-4">
+              <div className="h-panel-text absolute bottom-0 left-0 p-8 md:p-12 z-20 max-w-lg">
+                <p className="font-mono text-xs tracking-widest uppercase opacity-50 mb-3 md:mb-4">
                   {cat.label}
                 </p>
-                <h3 className="font-serif text-5xl md:text-7xl font-light leading-[0.9] tracking-tight text-white mb-6">
+                <h3 className="font-serif text-4xl md:text-6xl font-light leading-[0.9] tracking-tight text-white mb-4 md:mb-6">
                   {i === 0 ? (
                     <>
                       <em className="italic text-accent">Home</em>
@@ -764,16 +799,19 @@ export default function Home() {
                     </>
                   )}
                 </h3>
-                <p className="font-inter text-sm leading-relaxed opacity-60 max-w-sm">
+                <p className="font-inter text-sm md:text-base leading-relaxed opacity-70">
                   {cat.sublabel}
                 </p>
-                <div className="mt-6 flex items-center gap-4 text-xs font-mono uppercase tracking-widest opacity-40 group-hover:opacity-80 transition-opacity duration-500">
+                <div className="mt-6 flex items-center gap-4 text-xs font-mono uppercase tracking-widest opacity-50 group-hover:opacity-100 transition-opacity duration-500">
                   <span>Explore</span>
                   <span className="w-8 h-[0.5px] bg-white group-hover:w-16 transition-all duration-700" />
                 </div>
               </div>
             </a>
           ))}
+
+          {/* Ending padding */}
+          <div className="w-[10vw] md:w-[30vw] flex-shrink-0" />
         </div>
       </section>
 
